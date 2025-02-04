@@ -6,4 +6,8 @@ library AmmAdapterIdLib {
     string public constant ALGEBRA = "Algebra";
     string public constant KYBER = "KyberSwap";
     string public constant CURVE = "Curve";
+    string public constant SOLIDLY = "Solidly";
+    string public constant BALANCER_COMPOSABLE_STABLE = "BalancerComposableStable";
+    string public constant BALANCER_WEIGHTED = "BalancerWeighted";
+    string public constant ALGEBRA_V4 = "AlgebraV4";
 }

@@ -144,13 +144,13 @@ contract PriceReaderTest is Test, MockSetup {
             (uint priceD, bool trustedD) = priceReader.getPrice(address(tokenD));
             (uint priceE, bool trustedE) = priceReader.getPrice(address(tokenE));
             (uint _zero, bool _false) = priceReader.getPrice(address(this));
-            assertEq(priceA, 1e18);
+            assertEq(priceA, 1e18, "A0");
             assertEq(trustedA, true);
-            assertEq(priceB, 2 * 1e18);
+            assertEq(priceB, 2 * 1e18, "A1");
             assertEq(trustedB, true);
-            assertEq(priceD, 3 * 1e18);
+            assertEq(priceD, 3 * 1e18, "A2");
             assertEq(trustedD, true);
-            assertEq(priceE, 3 * 2e12);
+            assertEq(priceE, 3 * 2e12, "A3");
             assertEq(trustedE, false);
             assertEq(_zero, 0);
             assertEq(_false, false);
@@ -180,9 +180,13 @@ contract PriceReaderTest is Test, MockSetup {
         removeAssets[0] = address(tokenA);
         address[] memory removeNotExistingAsset = new address[](1);
         removeNotExistingAsset[0] = address(123);
+
+        vm.startPrank(platform.multisig());
         vm.expectRevert(abi.encodeWithSelector(IControllable.NotExist.selector));
         chainlinkAdapter.removePriceFeeds(removeNotExistingAsset);
         chainlinkAdapter.removePriceFeeds(removeAssets);
+        vm.stopPrank();
+
         allAssets = chainlinkAdapter.assets();
         assertEq(allAssets[0], address(tokenD));
         (uint price,) = chainlinkAdapter.getPrice(address(this));

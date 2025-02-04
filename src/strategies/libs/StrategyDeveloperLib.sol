@@ -38,7 +38,33 @@ library StrategyDeveloperLib {
         if (CommonLib.eq(strategyId, StrategyIdLib.YEARN)) {
             return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
         }
-
+        if (CommonLib.eq(strategyId, StrategyIdLib.STEER_QUICKSWAP_MERKL_FARM)) {
+            return 0xDa1A2a4A3fE9702b4FB0ddA13F702fc2395E2534;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.TRIDENT_PEARL_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.BEETS_STABLE_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.BEETS_WEIGHTED_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.EQUALIZER_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.ICHI_SWAPX_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.SWAPX_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.SILO_FARM)) {
+            return 0xa12C4Bbe4D6eD65285f05328Bca4462Bf4808E53;
+        }
+        if (CommonLib.eq(strategyId, StrategyIdLib.ALM_SHADOW_FARM)) {
+            return 0x88888887C3ebD4a33E34a15Db4254C74C75E5D4A;
+        }
         return address(0);
     }
 }

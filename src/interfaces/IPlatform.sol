@@ -62,6 +62,7 @@ interface IPlatform {
     event AddDexAggregator(address router);
     event RemoveDexAggregator(address router);
     event MinTvlForFreeHardWorkChanged(uint oldValue, uint newValue);
+    event CustomVaultFee(address vault, uint platformFee);
     event Rebalancer(address rebalancer_);
     event Bridge(address bridge_);
 
@@ -211,6 +212,10 @@ interface IPlatform {
         view
         returns (uint fee, uint feeShareVaultManager, uint feeShareStrategyLogic, uint feeShareEcosystem);
 
+    /// @notice Get custom vault platform fee
+    /// @return fee revenue fee % with DENOMINATOR precision
+    function getCustomVaultFee(address vault) external view returns (uint fee);
+
     /// @notice Platform settings
     function getPlatformSettings() external view returns (PlatformSettings memory);
 
@@ -311,8 +316,8 @@ interface IPlatform {
             bytes32[] memory strategyExtra
         );
 
-    // todo add vaultSymbol, vaultName
     /// @notice Front-end balances, prices and vault list viewer
+    /// DEPRECATED: use IFrontend.getBalanceAssets and IFrontend.getBalanceVaults
     /// @param yourAccount Address of account to query balances
     /// @return token Tokens supported by the platform
     /// @return tokenPrice USD price of token. Index of token same as in previous array.
@@ -434,9 +439,14 @@ interface IPlatform {
     /// @param minInitialBoostDuration_ Minimal boost rewards vesting duration for initial boost
     function setInitialBoost(uint minInitialBoostPerDay_, uint minInitialBoostDuration_) external;
 
-    /// @notice Update new minimum TVL for compansate.
+    /// @notice Update new minimum TVL for compensate.
     /// @param value New minimum TVL for compensate.
     function setMinTvlForFreeHardWork(uint value) external;
+
+    /// @notice Set custom platform fee for vault
+    /// @param vault Vault address
+    /// @param platformFee Custom platform fee
+    function setCustomVaultFee(address vault, uint platformFee) external;
 
     /// @notice Setup Rebalancer.
     /// Only Goverannce or Multisig can do this when Rebalancer is not set.

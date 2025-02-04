@@ -23,6 +23,7 @@ import "../src/strategies/IchiRetroMerklFarmStrategy.sol";
 import "../src/strategies/GammaRetroMerklFarmStrategy.sol";
 import "../src/strategies/CurveConvexFarmStrategy.sol";
 import "../src/strategies/YearnStrategy.sol";
+import "../src/strategies/SteerQuickSwapMerklFarmStrategy.sol";
 
 /// @dev Polygon network [chainId: 137] data library
 ///      ┏┓  ┓
@@ -149,6 +150,21 @@ library PolygonLib {
     address public constant DEFIEDGE_STRATEGY_WMATIC_WETH_NARROW_2 = 0x07d82761C3527Caf190b946e13d5C11291194aE6; // Jan-09-2024
     address public constant DEFIEDGE_STRATEGY_WMATIC_USDC_NARROW = 0x29f177EFF806b8A71Ff8C7259eC359312CaCE22D; // Jan-09-2024
 
+    // Steer
+    // Classic Rebalance Strategy V2
+    address public constant STEER_STRATEGY_WBTC_WETH_NARROW = 0x12a7b5510f8f5E13F75aFF4d00b2F88CC99d22DB;
+    address public constant STEER_STRATEGY_USDC_WETH_NARROW = 0x7b99506C8E89D5ba835e00E2bC48e118264d44ff;
+    address public constant STEER_STRATEGY_WMATIC_USDC_NARROW = 0x1EB20de00B0Ed23E3f9fDA7d23Fcbf473a23f180;
+    address public constant STEER_STRATEGY_WMATIC_USDT_NARROW = 0x7dEFd09DCf1F2b0A17Da55011D22C9B7Cb3008ba;
+    // Moving Volatility Channel Strategy - Medium
+    address public constant STEER_STRATEGY_WMATIC_USDT_NARROW_CHANNEL = 0x97915Dab9f8c0d6C32BEB598ceA3B44138C6c35E;
+    // Elastic Expansion Strategy
+    address public constant STEER_STRATEGY_WMATIC_USDT_NARROW_ELASTIC = 0x94cdd4E4a461aD2108B761Cfa87D7Bc409d382e7;
+    // Static Stable Strategy V2. Not used because we have QSMF
+    // address public constant STEER_STRATEGY_USDC_USDT_NARROW = 0xac70AeB44Eb2630DF830323DC0E35023b7cb6086;
+    // address public constant STEER_STRATEGY_USDC_DAI_NARROW = 0x9346d6DB0a060D656Bb84bAa9F087CAebB75D9E8;
+    // address public constant STEER_STRATEGY_USDCe_USDC_NARROW = 0x5d58Cf042233a167Ab090276963D43b5A30616f4;
+
     // Ichi
     address public constant ICHI_QUICKSWAP_WMATIC_USDT = 0x5D73D117Ffb8AD26e6CC9f2621d52f479AAA8C5B; // Nov-13-2023
     address public constant ICHI_QUICKSWAP_WBTC_WETH = 0x5D1b077212b624fe580a84384Ffea44da752ccb3; // Nov-13-2023
@@ -197,6 +213,9 @@ library PolygonLib {
         p.gelatoAutomate = GELATO_AUTOMATE;
         p.gelatoMinBalance = 1e18;
         p.gelatoDepositAmount = 2e18;
+        p.fee = 6_000;
+        p.feeShareVaultManager = 30_000;
+        p.feeShareStrategyLogic = 30_000;
     }
 
     function deployAndSetupInfrastructure(address platform, bool showLog) internal {
@@ -289,6 +308,9 @@ library PolygonLib {
         if (block.number > 54573098) {
             factory.addFarms(farms3());
         }
+        if (block.number >= 55600000) {
+            factory.addFarms(farms4());
+        }
         LogDeployLib.logAddedFarms(address(factory), showLog);
         //endregion -- Add farms -----
 
@@ -340,6 +362,7 @@ library PolygonLib {
         );
         _addStrategyLogic(factory, StrategyIdLib.CURVE_CONVEX_FARM, address(new CurveConvexFarmStrategy()), true);
         _addStrategyLogic(factory, StrategyIdLib.YEARN, address(new YearnStrategy()), false);
+        _addStrategyLogic(factory, StrategyIdLib.STEER_QUICKSWAP_MERKL_FARM, address(new SteerQuickSwapMerklFarmStrategy()), true);
         LogDeployLib.logDeployStrategies(platform, showLog);
         //endregion -- Deploy strategy logics -----
 
@@ -502,6 +525,43 @@ library PolygonLib {
         _farms[i++] = _makeIchiQuickSwapMerklFarm(ICHI_QUICKSWAP_WMATIC_MaticX);
     }
 
+    // steer quickswap
+    function farms4() public view returns (IFactory.Farm[] memory _farms) {
+        _farms = new IFactory.Farm[](6);
+        uint i;
+
+        // [41]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_WMATIC_USDC_NARROW,
+            ALMPositionNameLib.NARROW
+        );
+        // [42]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_WBTC_WETH_NARROW,
+            ALMPositionNameLib.NARROW
+        );
+        // [43]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_USDC_WETH_NARROW,
+            ALMPositionNameLib.NARROW
+        );
+        // [44]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_WMATIC_USDT_NARROW,
+            ALMPositionNameLib.NARROW
+        );
+        // [45]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_WMATIC_USDT_NARROW_CHANNEL,
+            ALMPositionNameLib.NARROW_VOLATILITY_CHANNEL
+        );
+        // [46]
+        _farms[i++] = _makeSteerQuickSwapMerklFarm(
+            STEER_STRATEGY_WMATIC_USDT_NARROW_ELASTIC,
+            ALMPositionNameLib.NARROW_ELASTIC
+        );
+    }
+
     function _makeCurveConvexFarm(
         address curvePool,
         address convexRewardPool
@@ -533,7 +593,7 @@ library PolygonLib {
         farm.pool = IHypervisor(hypervisor).pool();
         farm.strategyLogicId = StrategyIdLib.GAMMA_QUICKSWAP_MERKL_FARM;
         farm.rewardAssets = new address[](1);
-        farm.rewardAssets[0] = TOKEN_dQUICK;
+        farm.rewardAssets[0] = TOKEN_QUICK;
         farm.addresses = new address[](2);
         farm.addresses[0] = GAMMA_QUICKSWAP_UNIPROXY;
         farm.addresses[1] = hypervisor;
@@ -543,7 +603,29 @@ library PolygonLib {
         return farm;
     }
 
-    function _makeGammaRetroMerklFarm(address hypervisor, uint preset) internal view returns (IFactory.Farm memory) {
+    function _makeSteerQuickSwapMerklFarm(
+        address hypervisor,
+        uint preset
+    ) internal view returns (IFactory.Farm memory) {
+        IFactory.Farm memory farm;
+        farm.status = 0;
+        farm.pool = IHypervisor(hypervisor).pool();
+        farm.strategyLogicId = StrategyIdLib.STEER_QUICKSWAP_MERKL_FARM;
+        farm.rewardAssets = new address[](2);
+        farm.rewardAssets[0] = TOKEN_QUICK;
+        farm.rewardAssets[1] = TOKEN_WMATIC;
+        farm.addresses = new address[](1);
+        farm.addresses[0] = hypervisor;
+        farm.nums = new uint[](1);
+        farm.nums[0] = preset;
+        farm.ticks = new int24[](0);
+        return farm;
+    }
+
+    function _makeGammaRetroMerklFarm(
+        address hypervisor,
+        uint preset
+    ) internal view returns (IFactory.Farm memory) {
         IFactory.Farm memory farm;
         farm.status = 0;
         farm.pool = IHypervisor(hypervisor).pool();
@@ -573,7 +655,7 @@ library PolygonLib {
         farm.pool = IDefiEdgeStrategy(underlyingDefiEdge).pool();
         farm.strategyLogicId = StrategyIdLib.DEFIEDGE_QUICKSWAP_MERKL_FARM;
         farm.rewardAssets = new address[](1);
-        farm.rewardAssets[0] = TOKEN_dQUICK;
+        farm.rewardAssets[0] = TOKEN_QUICK;
         farm.addresses = new address[](1);
         farm.addresses[0] = underlyingDefiEdge;
         farm.nums = new uint[](1);
@@ -588,7 +670,7 @@ library PolygonLib {
         farm.pool = IICHIVault(underlyingIchi).pool();
         farm.strategyLogicId = StrategyIdLib.ICHI_QUICKSWAP_MERKL_FARM;
         farm.rewardAssets = new address[](2);
-        farm.rewardAssets[0] = TOKEN_dQUICK;
+        farm.rewardAssets[0] = TOKEN_QUICK;
         farm.rewardAssets[1] = TOKEN_ICHI;
         farm.addresses = new address[](1);
         farm.addresses[0] = underlyingIchi;
@@ -626,7 +708,7 @@ library PolygonLib {
         farm.pool = pool;
         farm.strategyLogicId = StrategyIdLib.QUICKSWAP_STATIC_MERKL_FARM;
         farm.rewardAssets = new address[](1);
-        farm.rewardAssets[0] = TOKEN_dQUICK;
+        farm.rewardAssets[0] = TOKEN_QUICK;
         farm.addresses = new address[](1);
         farm.addresses[0] = QUICKSWAP_POSITION_MANAGER;
         farm.nums = new uint[](0);

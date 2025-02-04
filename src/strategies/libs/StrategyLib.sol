@@ -15,7 +15,6 @@ import "../../interfaces/IFactory.sol";
 import "../../interfaces/IPriceReader.sol";
 import "../../interfaces/ISwapper.sol";
 import "../../interfaces/ILPStrategy.sol";
-import "../../interfaces/IRVault.sol";
 import "../../interfaces/IFarmingStrategy.sol";
 
 library StrategyLib {
@@ -48,14 +47,21 @@ library StrategyLib {
         if (keccak256(bytes(farm.strategyLogicId)) != keccak256(bytes(id))) {
             revert IFarmingStrategy.IncorrectStrategyId();
         }
-        uint len = farm.rewardAssets.length;
+
+        updateFarmingAssets($, platform);
+
+        $._rewardsOnBalance = new uint[](farm.rewardAssets.length);
+    }
+
+    function updateFarmingAssets(IFarmingStrategy.FarmingStrategyBaseStorage storage $, address platform) public {
+        IFactory.Farm memory farm = IFactory(IPlatform(platform).factory()).farm($.farmId);
         address swapper = IPlatform(platform).swapper();
+        $._rewardAssets = farm.rewardAssets;
+        uint len = farm.rewardAssets.length;
         // nosemgrep
         for (uint i; i < len; ++i) {
             IERC20(farm.rewardAssets[i]).forceApprove(swapper, type(uint).max);
         }
-        $._rewardAssets = farm.rewardAssets;
-        $._rewardsOnBalance = new uint[](farm.rewardAssets.length);
     }
 
     function transferAssets(
@@ -93,11 +99,15 @@ library StrategyLib {
             feeShareEcosystem: 0,
             amountEcosystem: 0
         });
-        // IPlatform _platform = IPlatform(platform);
-        // uint[] memory fees = new uint[](4);
-        // uint[] memory feeAmounts = new uint[](4);
+
         (vars.feePlatform, vars.feeShareVaultManager, vars.feeShareStrategyLogic, vars.feeShareEcosystem) =
             vars.platform.getFees();
+        try vars.platform.getCustomVaultFee(vault) returns (uint vaultCustomFee) {
+            if (vaultCustomFee != 0) {
+                vars.feePlatform = vaultCustomFee;
+            }
+        } catch {}
+
         address vaultManagerReceiver =
             IVaultManager(vars.platform.vaultManager()).getRevenueReceiver(IVault(vault).tokenId());
         //slither-disable-next-line unused-return
@@ -108,13 +118,11 @@ library StrategyLib {
         amountsRemaining = new uint[](len);
         // nosemgrep
         for (uint i; i < len; ++i) {
-            amounts_[i] = Math.min(amounts_[i], balance(assets_[i]));
-            if (amounts_[i] > 0) {
-                // revenue fee amount of assets_[i]
-                vars.amountPlatform = amounts_[i] * vars.feePlatform / ConstantsLib.DENOMINATOR;
+            // revenue fee amount of assets_[i]
+            vars.amountPlatform = amounts_[i] * vars.feePlatform / ConstantsLib.DENOMINATOR;
+            vars.amountPlatform = Math.min(vars.amountPlatform, balance(assets_[i]));
 
-                amountsRemaining[i] = amounts_[i] - vars.amountPlatform;
-
+            if (vars.amountPlatform > 0) {
                 // VaultManager amount
                 vars.amountVaultManager = vars.amountPlatform * vars.feeShareVaultManager / ConstantsLib.DENOMINATOR;
 
@@ -143,6 +151,8 @@ library StrategyLib {
                 emit IStrategy.ExtractFees(
                     vars.amountVaultManager, vars.amountStrategyLogic, vars.amountEcosystem, multisigAmount
                 );
+                amountsRemaining[i] = amounts_[i] - vars.amountPlatform;
+                amountsRemaining[i] = Math.min(amountsRemaining[i], balance(assets_[i]));
             }
         }
     }
@@ -151,7 +161,8 @@ library StrategyLib {
         address platform,
         address exchangeAsset,
         address[] memory rewardAssets_,
-        uint[] memory rewardAmounts_
+        uint[] memory rewardAmounts_,
+        uint customPriceImpactTolerance
     ) external returns (uint earnedExchangeAsset) {
         ISwapper swapper = ISwapper(IPlatform(platform).swapper());
         uint len = rewardAssets_.length;
@@ -161,7 +172,12 @@ library StrategyLib {
             if (rewardAmounts_[i] > swapper.threshold(rewardAssets_[i])) {
                 if (rewardAssets_[i] != exchangeAsset) {
                     swapper.swap(
-                        rewardAssets_[i], exchangeAsset, rewardAmounts_[i], SWAP_REWARDS_PRICE_IMPACT_TOLERANCE
+                        rewardAssets_[i],
+                        exchangeAsset,
+                        Math.min(rewardAmounts_[i], balance(rewardAssets_[i])),
+                        customPriceImpactTolerance != 0
+                            ? customPriceImpactTolerance
+                            : SWAP_REWARDS_PRICE_IMPACT_TOLERANCE
                     );
                 } else {
                     exchangeAssetBalanceBefore = 0;

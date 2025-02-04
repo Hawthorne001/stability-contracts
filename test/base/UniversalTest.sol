@@ -25,6 +25,8 @@ import "../../src/interfaces/IFarmingStrategy.sol";
 import "../../src/interfaces/ILPStrategy.sol";
 import "../../src/interfaces/IHardWorker.sol";
 import "../../src/interfaces/IZap.sol";
+import {IALM} from "../../src/interfaces/IALM.sol";
+import {IUniswapV3Pool} from "../../src/integrations/uniswapv3/IUniswapV3Pool.sol";
 
 abstract contract UniversalTest is Test, ChainSetup, Utils {
     Strategy[] public strategies;
@@ -35,6 +37,14 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
     uint public duration2 = 3 hours;
     uint public duration3 = 3 hours;
     uint public buildingPayPerVaultTokenAmount = 5e24;
+    uint public depositedSharesCheckDelimiter = 1000;
+    bool public makePoolVolume = true;
+    uint public makePoolVolumePriceImpactTolerance = 6_000;
+    bool public allowZeroApr = false;
+    uint public poolVolumeSwapAmount0Multiplier = 2;
+    uint public poolVolumeSwapAmount1Multiplier = 2;
+    mapping(address pool => uint multiplier) public poolVolumeSwapAmount0MultiplierForPool;
+    mapping(address pool => uint multiplier) public poolVolumeSwapAmount1MultiplierForPool;
 
     struct Strategy {
         string id;
@@ -66,6 +76,7 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
         bool hwEventFound;
         uint depositUsdValue;
         uint withdrawnUsdValue;
+        bool isALM;
     }
 
     modifier universalTest() {
@@ -78,9 +89,15 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
 
     function _preHardWork() internal virtual {}
 
+    function _rebalance() internal virtual {}
+
     function _preHardWork(uint farmId) internal virtual {}
 
     function _preDeposit() internal virtual {}
+
+    function _skip(uint time, uint) internal virtual {
+        skip(time);
+    }
 
     function testNull() public {}
 
@@ -265,6 +282,7 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                     assertEq(IAmmAdapter(vars.ammAdapter).ammAdapterId(), ILPStrategy(address(strategy)).ammAdapterId());
                     vars.pool = ILPStrategy(address(strategy)).pool();
                 }
+                vars.isALM = IERC165(address(strategy)).supportsInterface(type(IALM).interfaceId);
 
                 console.log(
                     string.concat(
@@ -314,6 +332,22 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
 
                     require(price > 0, "UniversalTest: price is zero. Forget to add swapper routes?");
                     depositAmounts[j] = 1000 * 10 ** IERC20Metadata(assets[j]).decimals() * 1e18 / price;
+                }
+
+                if (vars.isALM && makePoolVolume) {
+                    IUniswapV3Pool(vars.pool).increaseObservationCardinalityNext(100);
+                    _makePoolVolume(vars.pool, vars.ammAdapter, assets, depositAmounts[0], 100);
+                    IERC20(assets[0]).approve(vars.vault, depositAmounts[0]);
+                    IERC20(assets[1]).approve(vars.vault, depositAmounts[1]);
+                    vm.expectRevert();
+                    IVault(vars.vault).depositAssets(assets, depositAmounts, 0, address(0));
+                    skip(600);
+                    // cover
+                    IALM(address(strategy)).setupPriceChangeProtection(true, 600, 10_000);
+                }
+
+                // deal and approve
+                for (uint j; j < assets.length; ++j) {
                     _deal(assets[j], address(this), depositAmounts[j]);
                     IERC20(assets[j]).approve(vars.vault, depositAmounts[j]);
                 }
@@ -323,29 +357,13 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                 (tvl,) = IVault(vars.vault).tvl();
                 assertGt(tvl, 0, "Universal test: tvl is zero");
 
-                skip(duration1);
+                _skip(duration1, strategies[i].farmId);
 
-                if (vars.isLPStrategy) {
+                if (vars.isLPStrategy && makePoolVolume) {
                     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
                     /*                       MAKE POOL VOLUME                     */
                     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-                    {
-                        ISwapper swapper = ISwapper(platform.swapper());
-                        ISwapper.PoolData[] memory poolData = new ISwapper.PoolData[](1);
-                        poolData[0].pool = vars.pool;
-                        poolData[0].ammAdapter = vars.ammAdapter;
-                        poolData[0].tokenIn = assets[0];
-                        poolData[0].tokenOut = assets[1];
-                        IERC20(assets[0]).approve(address(swapper), depositAmounts[0]);
-                        _deal(assets[0], address(this), depositAmounts[0]);
-                        swapper.swapWithRoute(poolData, depositAmounts[0], 1_000);
-
-                        poolData[0].tokenIn = assets[1];
-                        poolData[0].tokenOut = assets[0];
-                        IERC20(assets[1]).approve(address(swapper), depositAmounts[1]);
-                        _deal(assets[1], address(this), depositAmounts[1]);
-                        swapper.swapWithRoute(poolData, depositAmounts[1], 1_000);
-                    }
+                    _makePoolVolume(vars.pool, vars.ammAdapter, assets, depositAmounts[0], depositAmounts[1]);
                 }
 
                 /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -368,7 +386,8 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                 /*                       SMALL WITHDRAW                       */
                 /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-                skip(duration2);
+                _skip(duration2, strategies[i].farmId);
+
                 vm.roll(block.number + 6);
 
                 {
@@ -387,34 +406,32 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                     assertEq(isEmpty, false, "Withdraw assets zero amount");
                 }
 
-                if (vars.isLPStrategy) {
+                if (vars.isLPStrategy && makePoolVolume) {
                     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
                     /*                       MAKE POOL VOLUME                     */
                     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
                     {
-                        ISwapper swapper = ISwapper(platform.swapper());
-                        ISwapper.PoolData[] memory poolData = new ISwapper.PoolData[](1);
-                        poolData[0].pool = vars.pool;
-                        poolData[0].ammAdapter = vars.ammAdapter;
-                        poolData[0].tokenIn = assets[0];
-                        poolData[0].tokenOut = assets[1];
-                        IERC20(assets[0]).approve(address(swapper), depositAmounts[0] * 2);
-                        _deal(assets[0], address(this), depositAmounts[0] * 2);
-                        swapper.swapWithRoute(poolData, depositAmounts[0] * 2, 1_000);
-
-                        poolData[0].tokenIn = assets[1];
-                        poolData[0].tokenOut = assets[0];
-                        IERC20(assets[1]).approve(address(swapper), depositAmounts[1] * 2);
-                        _deal(assets[1], address(this), depositAmounts[1] * 2);
-                        swapper.swapWithRoute(poolData, depositAmounts[1] * 2, 1_000);
+                        uint multiplier0 = poolVolumeSwapAmount0MultiplierForPool[vars.pool] != 0
+                            ? poolVolumeSwapAmount0MultiplierForPool[vars.pool]
+                            : poolVolumeSwapAmount0Multiplier;
+                        uint multiplier1 = poolVolumeSwapAmount1MultiplierForPool[vars.pool] != 0
+                            ? poolVolumeSwapAmount1MultiplierForPool[vars.pool]
+                            : poolVolumeSwapAmount1Multiplier;
+                        _makePoolVolume(
+                            vars.pool,
+                            vars.ammAdapter,
+                            assets,
+                            depositAmounts[0] * multiplier0,
+                            depositAmounts[1] * multiplier1
+                        );
                     }
                 }
 
-                skip(duration3);
-                vm.roll(block.number + 6);
-
                 _preHardWork();
                 _preHardWork(strategies[i].farmId);
+
+                _skip(duration3, strategies[i].farmId);
+                vm.roll(block.number + 6);
 
                 // check not claimed revenue if available
                 {
@@ -483,11 +500,14 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
 
                             StrategyLib.computeApr(tempTvl, tempEarned, tempDuration);
 
-                            assertGt(tempApr, 0, "HardWork APR");
-                            assertGt(tempEarned, 0, "HardWork Earned");
+                            if (!allowZeroApr) {
+                                assertGt(tempApr, 0, "HardWork APR");
+                                assertGt(tempEarned, 0, "HardWork Earned");
+                            }
+
                             assertGt(tempTvl, 0, "HardWork TVL");
                             assertGt(tempDuration, 0, "HardWork duration");
-                            if (!vars.isRVault && !vars.isRMVault) {
+                            if (!allowZeroApr && !vars.isRVault && !vars.isRMVault) {
                                 assertGt(tempAprCompound, 0, "Hardwork APR compound is zero. Check _compound() method.");
                             }
                         }
@@ -518,7 +538,7 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                     uint balanceBefore = IERC20(rewardToken).balanceOf(address(this));
                     IRVault(vars.vault).getAllRewards();
                     assertGt(IERC20(rewardToken).balanceOf(address(this)), balanceBefore, "Rewards was not claimed");
-                    skip(3600);
+                    _skip(3600, strategies[i].farmId);
                     balanceBefore = IERC20(rewardToken).balanceOf(address(this));
                     IRVault(vars.vault).getAllRewards();
                     assertGt(
@@ -543,68 +563,85 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                 /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
                 /*       UNDERLYING DEPOSIT, WITHDRAW. HARDWORK ON DEPOSIT    */
                 /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-                address underlying = strategy.underlying();
-                if (underlying != address(0)) {
-                    skip(7200);
-                    bool wasReadyForHardWork = strategy.isReadyForHardWork();
-                    address tempVault = vars.vault;
-                    deal(underlying, address(this), totalWas);
-                    assertEq(IERC20(underlying).balanceOf(address(this)), totalWas, "U1");
-                    IERC20(underlying).approve(tempVault, totalWas);
-                    address[] memory underlyingAssets = new address[](1);
-                    underlyingAssets[0] = underlying;
-                    uint[] memory underlyingAmounts = new uint[](1);
-                    underlyingAmounts[0] = totalWas;
-                    (, uint sharesOut, uint valueOut) =
-                        IVault(tempVault).previewDepositAssets(underlyingAssets, underlyingAmounts);
-                    assertEq(valueOut, totalWas, "previewDepositAssets by underlying valueOut");
-                    uint lastHw = strategy.lastHardWork();
-                    IVault(tempVault).depositAssets(underlyingAssets, underlyingAmounts, 0, address(0));
-                    if (strategy.isHardWorkOnDepositAllowed() && wasReadyForHardWork) {
-                        assertGt(strategy.lastHardWork(), lastHw, "HardWork not happened");
-                        assertGt(strategy.total(), totalWas, "Strategy total not increased after HardWork");
-                    }
+                if (
+                    !CommonLib.eq(strategy.strategyLogicId(), StrategyIdLib.TRIDENT_PEARL_FARM)
+                        || strategies[i].farmId == 0
+                ) {
+                    address underlying = strategy.underlying();
+                    if (underlying != address(0)) {
+                        address tempVault = vars.vault;
+                        address[] memory underlyingAssets = new address[](1);
+                        underlyingAssets[0] = underlying;
+                        uint[] memory underlyingAmounts = new uint[](1);
 
-                    assertEq(IERC20(underlying).balanceOf(address(this)), 0);
-
-                    uint vaultBalance = IERC20(tempVault).balanceOf(address(this));
-                    if (!strategy.isHardWorkOnDepositAllowed()) {
-                        assertEq(
-                            vaultBalance,
-                            sharesOut,
-                            "previewDepositAssets by underlying: sharesOut and real shares after deposit mismatch"
-                        );
-                    } else {
-                        assertLt(
-                            vaultBalance,
-                            sharesOut + sharesOut / 10000,
-                            "previewDepositAssets by underlying: vault balance too big"
-                        );
-                        assertGt(
-                            vaultBalance,
-                            sharesOut - sharesOut / 1000,
-                            "previewDepositAssets by underlying: vault balance too small"
-                        );
-                    }
-
-                    uint[] memory minAmounts = new uint[](1);
-                    minAmounts[0] = totalWas - 1;
-                    vm.expectRevert(abi.encodeWithSelector(IVault.WaitAFewBlocks.selector));
-                    IVault(tempVault).withdrawAssets(underlyingAssets, vaultBalance, minAmounts);
-                    vm.roll(block.number + 6);
-                    IVault(tempVault).withdrawAssets(underlyingAssets, vaultBalance, minAmounts);
-                    assertGe(IERC20(underlying).balanceOf(address(this)), totalWas - 1, "U2");
-                    assertLe(IERC20(underlying).balanceOf(address(this)), totalWas + 1);
-                } else {
-                    {
-                        vm.expectRevert(abi.encodeWithSelector(IControllable.NotVault.selector));
-                        strategy.depositUnderlying(18);
-                        vm.startPrank(strategy.vault());
-                        vm.expectRevert("no underlying");
-                        strategy.depositUnderlying(18);
-                        vm.expectRevert("no underlying");
-                        strategy.withdrawUnderlying(18, address(123));
+                        // first other user need to deposit to not hold vault only with dead shares
+                        underlyingAmounts[0] = totalWas / 100;
+                        deal(underlying, address(100), underlyingAmounts[0]);
+                        vm.startPrank(address(100));
+                        IERC20(underlying).approve(tempVault, underlyingAmounts[0]);
+                        IVault(tempVault).depositAssets(underlyingAssets, underlyingAmounts, 0, address(100));
                         vm.stopPrank();
+
+                        _skip(7200, strategies[i].farmId);
+
+                        bool wasReadyForHardWork = strategy.isReadyForHardWork();
+
+                        deal(underlying, address(this), totalWas);
+                        assertEq(IERC20(underlying).balanceOf(address(this)), totalWas, "U1");
+                        IERC20(underlying).approve(tempVault, totalWas);
+
+                        underlyingAmounts[0] = totalWas;
+                        (, uint sharesOut, uint valueOut) =
+                            IVault(tempVault).previewDepositAssets(underlyingAssets, underlyingAmounts);
+                        assertEq(valueOut, totalWas, "previewDepositAssets by underlying valueOut");
+                        uint lastHw = strategy.lastHardWork();
+                        IVault(tempVault).depositAssets(underlyingAssets, underlyingAmounts, 0, address(0));
+                        if (strategy.isHardWorkOnDepositAllowed() && wasReadyForHardWork) {
+                            assertGt(strategy.lastHardWork(), lastHw, "HardWork not happened");
+                            assertGt(strategy.total(), totalWas, "Strategy total not increased after HardWork");
+                        }
+
+                        assertEq(IERC20(underlying).balanceOf(address(this)), 0);
+
+                        uint vaultBalance = IERC20(tempVault).balanceOf(address(this));
+                        if (!strategy.isHardWorkOnDepositAllowed()) {
+                            assertEq(
+                                vaultBalance,
+                                sharesOut,
+                                "previewDepositAssets by underlying: sharesOut and real shares after deposit mismatch"
+                            );
+                        } else {
+                            assertLt(
+                                vaultBalance,
+                                sharesOut + sharesOut / depositedSharesCheckDelimiter,
+                                "previewDepositAssets by underlying: vault balance too big"
+                            );
+                            assertGt(
+                                vaultBalance,
+                                sharesOut - sharesOut / depositedSharesCheckDelimiter,
+                                "previewDepositAssets by underlying: vault balance too small"
+                            );
+                        }
+
+                        uint[] memory minAmounts = new uint[](1);
+                        minAmounts[0] = totalWas - totalWas / 10000;
+                        vm.expectRevert(abi.encodeWithSelector(IVault.WaitAFewBlocks.selector));
+                        IVault(tempVault).withdrawAssets(underlyingAssets, vaultBalance, minAmounts);
+                        vm.roll(block.number + 6);
+                        IVault(tempVault).withdrawAssets(underlyingAssets, vaultBalance, minAmounts);
+                        assertGe(IERC20(underlying).balanceOf(address(this)), minAmounts[0], "U2");
+                        assertLe(IERC20(underlying).balanceOf(address(this)), totalWas + 10);
+                    } else {
+                        {
+                            vm.expectRevert(abi.encodeWithSelector(IControllable.NotVault.selector));
+                            strategy.depositUnderlying(18);
+                            vm.startPrank(strategy.vault());
+                            vm.expectRevert("no underlying");
+                            strategy.depositUnderlying(18);
+                            vm.expectRevert("no underlying");
+                            strategy.withdrawUnderlying(18, address(123));
+                            vm.stopPrank();
+                        }
                     }
                 }
 
@@ -685,7 +722,7 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                     uint balNow = IERC20(assets[j]).balanceOf(address(this));
                     vars.withdrawnUsdValue += balNow * price / 10 ** IERC20Metadata(assets[j]).decimals();
                 }
-                assertGe(vars.withdrawnUsdValue, vars.depositUsdValue - vars.depositUsdValue / 1000);
+                assertGe(vars.withdrawnUsdValue, vars.depositUsdValue - vars.depositUsdValue / 100, "E1");
 
                 /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
                 /*                         COVERAGE                           */
@@ -708,5 +745,35 @@ abstract contract UniversalTest is Test, ChainSetup, Utils {
                 assertGt(variants.length, 0, "initVariants returns empty arrays");
             }
         }
+    }
+
+    function _makePoolVolume(
+        address pool,
+        address ammAdapter,
+        address[] memory assets_,
+        uint amount0,
+        uint amount1
+    ) internal {
+        ISwapper swapper = ISwapper(platform.swapper());
+        ISwapper.PoolData[] memory poolData = new ISwapper.PoolData[](1);
+        poolData[0].pool = pool;
+        poolData[0].ammAdapter = ammAdapter;
+        poolData[0].tokenIn = assets_[0];
+        poolData[0].tokenOut = assets_[1];
+        IERC20(assets_[0]).approve(address(swapper), amount0);
+        // incrementing need for some tokens with custom fee
+        _deal(assets_[0], address(this), amount0 + 1);
+        swapper.swapWithRoute(poolData, amount0, makePoolVolumePriceImpactTolerance);
+
+        _rebalance();
+
+        poolData[0].tokenIn = assets_[1];
+        poolData[0].tokenOut = assets_[0];
+        IERC20(assets_[1]).approve(address(swapper), amount1);
+        // incrementing need for some tokens with custom fee
+        _deal(assets_[1], address(this), amount1 + 1);
+        swapper.swapWithRoute(poolData, amount1, makePoolVolumePriceImpactTolerance);
+
+        _rebalance();
     }
 }

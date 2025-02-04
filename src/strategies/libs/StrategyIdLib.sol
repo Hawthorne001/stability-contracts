@@ -9,9 +9,18 @@ library StrategyIdLib {
     string internal constant GAMMA_UNISWAPV3_MERKL_FARM = "Gamma UniswapV3 Merkl Farm";
     string internal constant COMPOUND_FARM = "Compound Farm";
     string internal constant DEFIEDGE_QUICKSWAP_MERKL_FARM = "DefiEdge QuickSwap Merkl Farm";
+    string internal constant STEER_QUICKSWAP_MERKL_FARM = "Steer QuickSwap Merkl Farm";
     string internal constant ICHI_QUICKSWAP_MERKL_FARM = "Ichi QuickSwap Merkl Farm";
     string internal constant ICHI_RETRO_MERKL_FARM = "Ichi Retro Merkl Farm";
     string internal constant QUICKSWAP_STATIC_MERKL_FARM = "QuickSwap Static Merkl Farm";
     string internal constant CURVE_CONVEX_FARM = "Curve Convex Farm";
     string internal constant YEARN = "Yearn";
+    string internal constant TRIDENT_PEARL_FARM = "Trident Pearl Farm";
+    string internal constant BEETS_STABLE_FARM = "Beets Stable Farm";
+    string internal constant BEETS_WEIGHTED_FARM = "Beets Weighted Farm";
+    string internal constant EQUALIZER_FARM = "Equalizer Farm";
+    string internal constant ICHI_SWAPX_FARM = "Ichi SwapX Farm";
+    string internal constant SWAPX_FARM = "SwapX Farm";
+    string internal constant SILO_FARM = "Silo Farm";
+    string internal constant ALM_SHADOW_FARM = "ALM Shadow Farm";
 }

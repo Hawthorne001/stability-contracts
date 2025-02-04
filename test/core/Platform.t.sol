@@ -258,7 +258,7 @@ contract PlatformTest is Test {
 
             skip(30 days);
 
-            vm.startPrank(address(100));
+            vm.startPrank(address(101));
             vm.expectRevert(IControllable.NotOperator.selector);
             platform.upgrade();
             vm.stopPrank();
@@ -299,7 +299,7 @@ contract PlatformTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IPlatform.IncorrectFee.selector, _minFee, _maxFee));
         platform.setFees(3_000, 30_000, 30_000, 0);
         vm.expectRevert(abi.encodeWithSelector(IPlatform.IncorrectFee.selector, _minFee, _maxFee));
-        platform.setFees(13_000, 30_000, 30_000, 0);
+        platform.setFees(51_000, 19_000, 30_000, 0);
 
         _minFee = platform.MIN_FEE_SHARE_VAULT_MANAGER();
         vm.expectRevert(abi.encodeWithSelector(IPlatform.IncorrectFee.selector, _minFee, 0));
@@ -312,6 +312,9 @@ contract PlatformTest is Test {
         _maxFee = ConstantsLib.DENOMINATOR;
         vm.expectRevert(abi.encodeWithSelector(IPlatform.IncorrectFee.selector, 0, _maxFee));
         platform.setFees(10_000, 60_000, 50_000, 0);
+
+        platform.setCustomVaultFee(address(1), 22_222);
+        assertEq(platform.getCustomVaultFee(address(1)), 22_222);
 
         vm.stopPrank();
     }
@@ -586,7 +589,7 @@ contract PlatformTest is Test {
         assertEq(strategyLogic.supportsInterface(type(IStrategyLogic).interfaceId), true);
     }
 
-    function testOther() public {
+    function testOther() public pure {
         assertEq(StrategyDeveloperLib.getDeveloper("unknown"), address(0));
     }
 }
